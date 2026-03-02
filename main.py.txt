@@ -1,0 +1,76 @@
+from flask import Flask, render_template, jsonify
+from apscheduler.schedulers.background import BackgroundScheduler
+import pandas as pd, time, threading, smtplib
+from email.message import EmailMessage
+from analise import varrer_mercados
+
+app = Flask(__name__)
+
+# --- CONFIGURAÇÃO SPARTACUS EMAIL ---
+EMAIL_REMETENTE = "franciscomiguel839@gmail.com"
+EMAIL_DESTINO = "hospitalmaejacintapaulino@gmail.com"
+SENHA_APP = "Marilena2015" # Aquela que geras no Google
+log_atividades = []
+
+def enviar_email(assunto, corpo):
+    """Envia o relatório de IA diretamente para o teu e-mail"""
+    msg = EmailMessage()
+    msg.set_content(corpo)
+    msg['Subject'] = assunto
+    msg['From'] = EMAIL_REMETENTE
+    msg['To'] = EMAIL_DESTINO
+
+    try:
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+            smtp.login(EMAIL_REMETENTE, SENHA_APP)
+            smtp.send_message(msg)
+        return True
+    except Exception as e:
+        print(f"Erro ao enviar e-mail: {e}")
+        return False
+
+def rotina_spartacus():
+    hora_atual = time.strftime('%H:%M:%S')
+    log_atividades.append(f"[{hora_atual}] 🤖 IA: Varredura de e-mail iniciada...")
+    
+    dados = varrer_mercados()
+    
+    if dados:
+        # Criar o corpo do e-mail formatado
+        corpo_email = "🛡️ RELATÓRIO DE OPORTUNIDADES SPARTACUS TECHNOLOGY\n\n"
+        for item in dados:
+            corpo_email += f"🏟️ JOGO: {item['Jogo']}\n"
+            corpo_email += f"🎯 MERCADO: {item['Mercado']}\n"
+            corpo_email += f"📈 ODD: {item['Odd']}\n"
+            corpo_email += f"📊 CONFIANÇA: {item['Confianca']}\n"
+            corpo_email += "-------------------------------------------\n"
+        
+        assunto = f"🛡️ Spartacus IA: {len(dados)} Oportunidade(s) Encontrada(s)!"
+        
+        if enviar_email(assunto, corpo_email):
+            log_atividades.append(f"[{hora_atual}] ✅ Relatório enviado para: {EMAIL_DESTINO}")
+        
+        # Guardar Excel localmente no Replit
+        pd.DataFrame(dados).to_excel(f"relatorio_{time.strftime('%Y%m%d')}.xlsx", index=False)
+    else:
+        log_atividades.append(f"[{hora_atual}] ⚠️ Nenhuma Odd de valor encontrada.")
+
+# --- AGENDADOR ---
+scheduler = BackgroundScheduler()
+scheduler.add_job(func=rotina_spartacus, trigger="interval", minutes=60)
+scheduler.start()
+
+# --- ROTAS ---
+@app.route('/')
+def home(): return render_template('index.html')
+
+@app.route('/iniciar', methods=['POST'])
+def iniciar():
+    threading.Thread(target=rotina_spartacus).start()
+    return jsonify({"status": "IA em movimento"})
+
+@app.route('/logs')
+def logs(): return jsonify({"logs": log_atividades})
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8080)
